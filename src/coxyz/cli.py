@@ -36,7 +36,7 @@ app = typer.Typer(
     name="coxyz",
     help="CLI to manage Docker services under /srv/docker.",
     no_args_is_help=True,
-    add_completion=False,
+    add_completion=True,
 )
 console = Console()
 err_console = Console(stderr=True)
