@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -62,13 +63,41 @@ class ServiceReport:
 
 # ─── Path discovery ───────────────────────────────────────────────────────────
 
+def _relative_to_root(config: Config, path: Path) -> str:
+    try:
+        return path.resolve().relative_to(config.root_dir.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def is_excluded_path(config: Config, path: Path) -> bool:
+    """Return True if path matches one of config exclude glob patterns."""
+    rel = _relative_to_root(config, path)
+    abs_path = path.as_posix()
+
+    for pattern in config.exclude:
+        pat = pattern.strip()
+        if not pat:
+            continue
+        if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(abs_path, pat):
+            return True
+        if pat.endswith("/"):
+            dir_pat = pat.rstrip("/")
+            for candidate in [path, *path.parents]:
+                crel = _relative_to_root(config, candidate)
+                cabs = candidate.as_posix()
+                if fnmatch.fnmatch(crel, dir_pat) or fnmatch.fnmatch(cabs, dir_pat):
+                    return True
+    return False
+
+
 def list_categories(config: Config) -> list[str]:
     """Return existing categories on disk (filtered by config)."""
     if not config.root_dir.is_dir():
         return []
     found: list[str] = []
     for entry in sorted(config.root_dir.iterdir()):
-        if entry.is_dir() and entry.name in config.categories:
+        if entry.is_dir() and entry.name in config.categories and not is_excluded_path(config, entry):
             found.append(entry.name)
     return found
 
@@ -82,7 +111,7 @@ def list_services(config: Config, category: str | None = None) -> list[tuple[str
         if not cat_dir.is_dir():
             continue
         for entry in sorted(cat_dir.iterdir()):
-            if entry.is_dir():
+            if entry.is_dir() and not is_excluded_path(config, entry):
                 out.append((cat, entry.name, entry))
     return out
 
@@ -95,11 +124,11 @@ def resolve_service(config: Config, name: str) -> tuple[str, str, Path]:
     if "/" in name:
         cat, svc = name.split("/", 1)
         path = config.root_dir / cat / svc
-        if not path.is_dir():
+        if not path.is_dir() or is_excluded_path(config, path):
             raise ValueError(f"Service not found: {cat}/{svc}")
         return cat, svc, path
 
-    matches = [s for s in list_services(config) if s[1] == name]
+    matches = [s for s in list_services(config) if s[1] == name and not is_excluded_path(config, s[2])]
     if not matches:
         raise ValueError(f"Service not found: {name}")
     if len(matches) > 1:
@@ -133,6 +162,37 @@ def _audit_path(
     fixes: list[list[str]] = []
 
     if not state.exists:
+        if not rule.audit_only and rule_name in {"category_dir", "service_dir", "config_dir", "data_dir"}:
+            issues.append("path does not exist")
+            fixes.append(["mkdir", "-p", str(path)])
+
+            u, g = expected_owner.split(":", 1)
+            if not user_exists(u):
+                issues.append(f"owner expected {expected_owner} (user '{u}' missing)")
+            elif not group_exists(g):
+                issues.append(f"owner expected {expected_owner} (group '{g}' missing)")
+            else:
+                fixes.append(["chown", expected_owner, str(path)])
+
+            if rule.acl is not None:
+                if not acl_enabled:
+                    issues.append(f"acl missing ({rule.acl}); ACL support disabled on filesystem")
+                elif not komodo_available:
+                    issues.append(f"acl missing ({rule.acl}); komodo principal not found")
+                else:
+                    entry = acl_entry_for(config.komodo.name, config.komodo.kind, rule.acl)
+                    mask = "rx" if rule.acl == "x" else rule.acl.replace("-", "")
+                    fixes.append(["setfacl", "-m", entry, str(path)])
+                    fixes.append(["setfacl", "-m", f"m:{mask}", str(path)])
+
+            fixes.append(["chmod", rule.mode, str(path)])
+            return Finding(
+                path=path,
+                rule_name=rule_name,
+                severity=Severity.DRIFT,
+                issues=issues,
+                fixes=fixes,
+            )
         return Finding(
             path=path, rule_name=rule_name, severity=Severity.ERROR,
             issues=[f"path does not exist"], fixes=[],
@@ -202,6 +262,8 @@ def audit_service(
     report = ServiceReport(category=category, service=service, path=svc_path)
 
     def add(path: Path, rule_name: str) -> None:
+        if is_excluded_path(config, path):
+            return
         rule = config.rule(rule_name)
         owner = _expected_owner(config, category, rule)
         report.findings.append(
@@ -218,7 +280,7 @@ def audit_service(
     compose = svc_path / "compose.yaml"
     if compose.exists():
         add(compose, "compose_file")
-    else:
+    elif not is_excluded_path(config, compose):
         report.findings.append(Finding(
             path=compose, rule_name="compose_file", severity=Severity.WARN,
             issues=["compose.yaml not found"],
@@ -226,8 +288,7 @@ def audit_service(
 
     # config/ dir — only the directory itself, not its contents
     config_dir = svc_path / "config"
-    if config_dir.is_dir():
-        add(config_dir, "config_dir")
+    add(config_dir, "config_dir")
 
     # data/ dir — only the directory itself, not its contents (audit only)
     data_dir = svc_path / "data"
@@ -247,10 +308,13 @@ def audit_category(
     *, acl_enabled: bool, komodo_available: bool,
 ) -> Finding:
     """Audit the category directory itself."""
+    cat_path = config.root_dir / category
+    if is_excluded_path(config, cat_path):
+        return Finding(path=cat_path, rule_name="category_dir", severity=Severity.OK)
     rule = config.rule("category_dir")
     owner = _expected_owner(config, category, rule)
     return _audit_path(
-        config.root_dir / category, "category_dir", rule, owner, config,
+        cat_path, "category_dir", rule, owner, config,
         acl_enabled=acl_enabled, komodo_available=komodo_available,
     )
 
@@ -285,12 +349,28 @@ def _order_fixes(fixes: list[list[str]]) -> list[list[str]]:
     return sorted(fixes, key=priority)
 
 
+def _target_path(cmd: list[str]) -> Path | None:
+    if not cmd:
+        return None
+    candidate = cmd[-1]
+    if not candidate.startswith("/"):
+        return None
+    return Path(candidate)
+
+
 def apply_findings(findings: list[Finding], *, dry_run: bool) -> ApplyResult:
     """Execute the planned fixes for non-OK, non-WARN findings."""
     runner = CommandRunner(dry_run=dry_run)
+    created_dirs: set[Path] = set()
     for finding in findings:
         if finding.severity is Severity.DRIFT:
             for cmd in _order_fixes(finding.fixes):
+                target = _target_path(cmd)
+                if target is not None:
+                    parent = target.parent
+                    if not parent.exists() and parent not in created_dirs:
+                        runner.run(["mkdir", "-p", str(parent)])
+                        created_dirs.add(parent)
                 runner.run(cmd)
     return ApplyResult(
         findings_before=list(findings),

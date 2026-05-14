@@ -43,9 +43,8 @@ coxyz check                     # audit all services (exit 1 on drift)
 coxyz check bitwarden           # audit one service
 coxyz check apps/bitwarden -v   # verbose (show OK findings too)
 
-coxyz apply                     # DRY-RUN by default
-coxyz apply --apply             # actually apply fixes
-coxyz apply bitwarden --apply -y
+coxyz apply                     # preview planned fixes, ask confirmation, then apply
+coxyz apply bitwarden -y
 
 coxyz create                    # interactive prompts
 coxyz create -C apps -n myapp -i nginx:1.27 -p 80 --apply
@@ -55,15 +54,25 @@ coxyz show-config               # print resolved config
 
 Most operations require root (chown/setfacl), so prefix with `sudo`.
 
+Example excludes in `config.yaml`:
+
+```yaml
+exclude:
+  - "*.bak"
+  - "*/do_not_touch/"
+```
+
 ## How it works
 
 - **Config** (`/etc/coxyz/config.yaml` or bundled default) defines:
   - root dir, komodo principal, authorized categories
+  - `exclude` glob patterns to ignore paths during audit/apply
   - per-path rules: mode, ACL perms, optional owner override, audit-only flag
 - **`check`**: read-only audit. Reports drift and warn-only (data/, .env).
-- **`apply`**: dry-run by default. Use `--apply` to commit.
+- **`apply`**: shows planned changes, asks for confirmation, then applies fixes.
   - Touches: category/service dirs, compose.yaml, config/ tree.
   - Never touches: `data/` content, `.env` files (audit-only).
+  - Creates required missing directories before applying path fixes.
 - **`create`**: scaffolds `<category>/<service>/{compose.yaml,config/,data/}`
   with correct owners + perms + ACL.
 - **`list`**: parses each `compose.yaml` for image/ports and runs an audit

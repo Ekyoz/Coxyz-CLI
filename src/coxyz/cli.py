@@ -308,13 +308,9 @@ def apply_cmd(
         Optional[str],
         typer.Argument(help="Service name. Default: all."),
     ] = None,
-    apply_changes: Annotated[
-        bool,
-        typer.Option("--apply", help="Actually execute changes (default: dry-run)."),
-    ] = False,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompt.")] = False,
 ) -> None:
-    """Apply correct permissions/ACL to services. DRY-RUN by default — use --apply to commit."""
+    """Apply correct permissions/ACL to services after confirmation."""
     _print_runtime_banner()
 
     if service:
@@ -375,12 +371,6 @@ def apply_cmd(
         for f in errors:
             _print_finding(f)
         raise typer.Exit(code=2)
-
-    if not apply_changes:
-        console.print(
-            "\n[dim]Dry-run mode. Re-run with [bold]--apply[/bold] to execute these changes.[/dim]"
-        )
-        raise typer.Exit()
 
     if not yes and not typer.confirm(f"\nApply {len(drifts)} fix(es)?"):
         console.print("[dim]Aborted.[/dim]")
@@ -502,6 +492,10 @@ def show_config_cmd() -> None:
     console.print(f"\n[bold]Categories[/bold] ({len(cfg.categories)})")
     for name, c in sorted(cfg.categories.items()):
         console.print(f"  {name:12} → {c.owner_spec}")
+
+    console.print(f"\n[bold]Exclude[/bold] ({len(cfg.exclude)})")
+    for pattern in cfg.exclude:
+        console.print(f"  - {pattern}")
 
     console.print(f"\n[bold]Rules[/bold] ({len(cfg.rules)})")
     table = Table(show_header=True, header_style="bold dim")
