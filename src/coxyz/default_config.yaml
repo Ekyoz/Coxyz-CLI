@@ -3,6 +3,10 @@
 
 root_dir: /srv/docker
 
+# Paths to ignore during audit and apply (glob patterns).
+# Examples: "*.bak", "*/do_not_touch/", "apps/legacy/*"
+exclude: []
+
 komodo:
   name: komodo_runner
   kind: group              # "group" or "user"

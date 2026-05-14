@@ -52,6 +52,7 @@ class Config:
     komodo: KomodoConfig
     categories: dict[str, CategoryConfig]
     rules: dict[str, RuleConfig]
+    exclude: list[str]
     compose_template: ComposeTemplateConfig
 
     def category(self, name: str) -> CategoryConfig:
@@ -120,11 +121,16 @@ def _parse_config(raw: dict) -> Config:
             external_network=str(ct["external_network"]),
         )
 
+        exclude_raw = raw.get("exclude", [])
+        if not isinstance(exclude_raw, list):
+            raise ValueError("exclude must be a list of glob patterns")
+
         return Config(
             root_dir=Path(raw["root_dir"]),
             komodo=komodo,
             categories=categories,
             rules=rules,
+            exclude=[str(p) for p in exclude_raw],
             compose_template=compose_template,
         )
     except KeyError as e:
