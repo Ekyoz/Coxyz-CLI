@@ -45,14 +45,6 @@ rules:
     mode: "750"
     acl: "rx"
 
-  config_subdir:
-    mode: "750"
-    acl: "rwx"
-
-  config_file:
-    mode: "660"
-    acl: "rw"
-
   data_dir:
     mode: "750"
     acl: null
