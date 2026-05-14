@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coxyz"
+version = "0.1.0"
+description = "CLI to manage Docker services under /srv/docker (coxyz rules)"
+requires-python = ">=3.10"
+authors = [{ name = "coxyz" }]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+coxyz = "coxyz.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+coxyz = ["default_config.yaml", "templates/*"]

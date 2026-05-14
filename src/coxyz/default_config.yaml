@@ -1,0 +1,71 @@
+# Default configuration for coxyz CLI
+# Override location: /etc/coxyz/config.yaml (or --config FILE)
+
+root_dir: /srv/docker
+
+komodo:
+  name: komodo_runner
+  kind: group              # "group" or "user"
+
+# Authorized categories and their owning service account.
+# Format: <category>: { user: <svc_user>, group: <svc_group> }
+categories:
+  apps:
+    user: svc_apps
+    group: svc_apps
+  automation:
+    user: svc_automation
+    group: svc_automation
+  monitoring:
+    user: svc_monitoring
+    group: svc_monitoring
+  network:
+    user: svc_network
+    group: svc_network
+
+# Rules applied to each path kind.
+# - mode: octal mode as string (e.g. "750")
+# - acl:  komodo ACL perms ("rx", "rw", "rwx", "x") or null to skip
+# - owner: optional "user:group" override (default: category owner)
+# - audit_only: if true, never modify; just report drift
+rules:
+  category_dir:
+    mode: "750"
+    acl: "rx"
+
+  service_dir:
+    mode: "750"
+    acl: "rx"
+
+  compose_file:
+    mode: "660"
+    acl: "rw"
+
+  config_dir:
+    mode: "750"
+    acl: "rx"
+
+  config_subdir:
+    mode: "750"
+    acl: "rwx"
+
+  config_file:
+    mode: "660"
+    acl: "rw"
+
+  data_dir:
+    mode: "750"
+    acl: null
+    audit_only: true
+
+  env_file:
+    mode: "600"
+    owner: "root:root"
+    acl: null
+    audit_only: true
+
+# Compose template variables for `coxyz create`
+compose_template:
+  default_internal_port: 8080
+  default_timezone: "Europe/Paris"
+  external_network: coxyz_network
