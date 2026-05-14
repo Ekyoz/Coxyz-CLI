@@ -13,6 +13,16 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
+class CommandExecutionError(RuntimeError):
+    """Raised when a shell command exits with a non-zero status."""
+
+    command: tuple[str, ...]
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+@dataclass(frozen=True)
 class PathState:
     """Observable state of a path on disk."""
 
@@ -173,7 +183,15 @@ class CommandRunner:
         self.executed.append(args)
         if self.dry_run:
             return
-        subprocess.run(args, check=True, capture_output=True, text=True)
+        try:
+            subprocess.run(args, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            raise CommandExecutionError(
+                command=tuple(args),
+                returncode=exc.returncode,
+                stdout=exc.stdout or "",
+                stderr=exc.stderr or "",
+            ) from exc
 
     def chmod(self, path: Path, mode: str) -> None:
         self.run(["chmod", mode, str(path)])

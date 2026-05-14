@@ -27,6 +27,7 @@ from .policy import (
 )
 from .scaffold import CreateRequest, create_service, validate_service_name
 from .system import (
+    CommandExecutionError,
     check_required_bins,
     detect_acl_support,
     komodo_principal_exists,
@@ -376,7 +377,16 @@ def apply_cmd(
         console.print("[dim]Aborted.[/dim]")
         raise typer.Exit(code=1)
 
-    result = apply_findings(drifts, dry_run=False)
+    try:
+        result = apply_findings(drifts, dry_run=False)
+    except CommandExecutionError as e:
+        err_console.print("[red]ERROR[/red] Failed to apply fixes: a shell command failed.")
+        err_console.print(f"[red]Command[/red]: {' '.join(e.command)}")
+        if e.stdout.strip():
+            err_console.print(f"[red]stdout[/red]:\n{e.stdout.rstrip()}")
+        if e.stderr.strip():
+            err_console.print(f"[red]stderr[/red]:\n{e.stderr.rstrip()}")
+        raise typer.Exit(code=2)
     console.print(f"\n[green]✓ Done — {len(result.commands_run)} command(s) executed.[/green]")
 
 

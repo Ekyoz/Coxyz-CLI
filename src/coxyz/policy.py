@@ -367,18 +367,31 @@ def _target_path(cmd: list[str]) -> Path | None:
     return Path(candidate)
 
 
+def _normalize_command(cmd: list[str]) -> list[str]:
+    if cmd and cmd[0] == "mkdir":
+        return ["mkdir", "-p", cmd[-1]]
+    return cmd
+
+
 def apply_findings(findings: list[Finding], *, dry_run: bool) -> ApplyResult:
     """Execute the planned fixes for non-OK, non-WARN findings."""
     runner = CommandRunner(dry_run=dry_run)
+    created_dirs: set[Path] = set()
     for finding in findings:
         if finding.severity is Severity.DRIFT:
             for cmd in _order_fixes(finding.fixes):
-                target = _target_path(cmd)
+                normalized_cmd = _normalize_command(cmd)
+                target = _target_path(normalized_cmd)
                 if target is not None:
                     parent = target.parent
-                    if not parent.exists():
+                    if parent not in created_dirs and not parent.exists():
                         runner.run(["mkdir", "-p", str(parent)])
-                runner.run(cmd)
+                        created_dirs.add(parent)
+                if normalized_cmd and normalized_cmd[0] == "mkdir" and target is not None:
+                    if target in created_dirs:
+                        continue
+                    created_dirs.add(target)
+                runner.run(normalized_cmd)
     return ApplyResult(
         findings_before=list(findings),
         commands_run=runner.executed,
