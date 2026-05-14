@@ -43,7 +43,7 @@ rules:
 
   config_dir:
     mode: "750"
-    acl: "rx"
+    acl: "x"
 
   data_dir:
     mode: "750"
