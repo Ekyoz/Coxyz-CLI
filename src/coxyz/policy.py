@@ -224,24 +224,15 @@ def audit_service(
             issues=["compose.yaml not found"],
         ))
 
-    # config/ tree
+    # config/ dir — only the directory itself, not its contents
     config_dir = svc_path / "config"
     if config_dir.is_dir():
         add(config_dir, "config_dir")
-        for sub in sorted(config_dir.rglob("*")):
-            if sub.is_dir():
-                add(sub, "config_subdir")
-            elif sub.is_file():
-                add(sub, "config_file")
 
-    # data/ tree (audit only)
+    # data/ dir — only the directory itself, not its contents (audit only)
     data_dir = svc_path / "data"
     if data_dir.is_dir():
         add(data_dir, "data_dir")
-        for sub in sorted(data_dir.rglob("*")):
-            if sub.is_dir():
-                add(sub, "data_dir")
-            # Files inside data/ are never touched and not audited.
 
     # .env file (audit only)
     env_file = svc_path / ".env"
