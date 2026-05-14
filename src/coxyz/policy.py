@@ -28,6 +28,9 @@ class Severity(str, Enum):
     ERROR = "error"          # blocking (missing user, etc.)
 
 
+AUTO_CREATE_DIR_RULES = {"category_dir", "service_dir", "config_dir"}
+
+
 @dataclass
 class Finding:
     path: Path
@@ -146,6 +149,12 @@ def _expected_owner(config: Config, category: str, rule: RuleConfig) -> str:
     return cat.owner_spec
 
 
+def _acl_mask_for_rule_acl(acl: str, *, is_dir: bool) -> str:
+    if acl == "x" and is_dir:
+        return "rx"
+    return acl.replace("-", "")
+
+
 def _audit_path(
     path: Path,
     rule_name: str,
@@ -162,7 +171,7 @@ def _audit_path(
     fixes: list[list[str]] = []
 
     if not state.exists:
-        if not rule.audit_only and rule_name in {"category_dir", "service_dir", "config_dir", "data_dir"}:
+        if not rule.audit_only and rule_name in AUTO_CREATE_DIR_RULES:
             issues.append("path does not exist")
             fixes.append(["mkdir", "-p", str(path)])
 
@@ -181,7 +190,7 @@ def _audit_path(
                     issues.append(f"acl missing ({rule.acl}); komodo principal not found")
                 else:
                     entry = acl_entry_for(config.komodo.name, config.komodo.kind, rule.acl)
-                    mask = "rx" if rule.acl == "x" else rule.acl.replace("-", "")
+                    mask = _acl_mask_for_rule_acl(rule.acl, is_dir=True)
                     fixes.append(["setfacl", "-m", entry, str(path)])
                     fixes.append(["setfacl", "-m", f"m:{mask}", str(path)])
 
@@ -225,7 +234,7 @@ def _audit_path(
         elif not has_komodo_entry(state, config.komodo.name, config.komodo.kind, rule.acl):
             entry = acl_entry_for(config.komodo.name, config.komodo.kind, rule.acl)
             issues.append(f"acl missing or wrong: expected {entry}")
-            mask = "rx" if (rule.acl == "x" and state.is_dir) else rule.acl.replace("-", "")
+            mask = _acl_mask_for_rule_acl(rule.acl, is_dir=state.is_dir)
             if has_any_default_acl(state):
                 fixes.append(["setfacl", "-k", str(path)])
             fixes.append(["setfacl", "-m", entry, str(path)])
@@ -361,16 +370,14 @@ def _target_path(cmd: list[str]) -> Path | None:
 def apply_findings(findings: list[Finding], *, dry_run: bool) -> ApplyResult:
     """Execute the planned fixes for non-OK, non-WARN findings."""
     runner = CommandRunner(dry_run=dry_run)
-    created_dirs: set[Path] = set()
     for finding in findings:
         if finding.severity is Severity.DRIFT:
             for cmd in _order_fixes(finding.fixes):
                 target = _target_path(cmd)
                 if target is not None:
                     parent = target.parent
-                    if not parent.exists() and parent not in created_dirs:
+                    if not parent.exists():
                         runner.run(["mkdir", "-p", str(parent)])
-                        created_dirs.add(parent)
                 runner.run(cmd)
     return ApplyResult(
         findings_before=list(findings),
