@@ -573,7 +573,11 @@ def edit_cmd() -> None:
         console.print(f"[dim]Created {cfg_path} from bundled defaults.[/dim]")
     editor = os.environ.get("EDITOR")
     if editor and editor.strip():
-        command = [editor.strip(), str(cfg_path)]
+        editor_cmd = editor.strip()
+        if shutil.which(editor_cmd) is None and not Path(editor_cmd).is_file():
+            err_console.print(f"[red]ERROR[/red] Editor not found: {editor_cmd}")
+            raise typer.Exit(code=2)
+        command = [editor_cmd, str(cfg_path)]
     else:
         command = None
         for candidate in ("nano", "vi", "vim"):

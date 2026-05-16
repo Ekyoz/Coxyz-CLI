@@ -29,6 +29,7 @@ class Severity(str, Enum):
 
 
 AUTO_CREATE_DIR_RULES = {"category_dir", "service_dir", "config_dir", "data_dir"}
+PRIORITY_CREATE_DIR = -1
 
 
 @dataclass
@@ -149,6 +150,14 @@ def _expected_owner(config: Config, category: str, rule: RuleConfig) -> str:
     return cat.owner_spec
 
 
+def _should_auto_create_dir(rule_name: str, rule: RuleConfig) -> bool:
+    """Return True if missing paths for this rule should be created."""
+    if rule_name not in AUTO_CREATE_DIR_RULES:
+        return False
+    # Always create required dirs; data_dir is created even if audit_only.
+    return not rule.audit_only or rule_name == "data_dir"
+
+
 def _audit_path(
     path: Path,
     rule_name: str,
@@ -165,11 +174,7 @@ def _audit_path(
     fixes: list[list[str]] = []
 
     if not state.exists:
-        # Always create required dirs; data_dir is created even if audit_only.
-        should_create = rule_name in AUTO_CREATE_DIR_RULES and (
-            not rule.audit_only or rule_name == "data_dir"
-        )
-        if should_create:
+        if _should_auto_create_dir(rule_name, rule):
             issues.append("path does not exist")
             fixes.append(["mkdir", "-p", str(path)])
 
@@ -363,7 +368,7 @@ def _order_fixes(fixes: list[list[str]]) -> list[list[str]]:
             return 99
         if cmd[0] == "mkdir":
             # Ensure directories exist before chown/setfacl/chmod.
-            return -1
+            return PRIORITY_CREATE_DIR
         if cmd[0] == "chown":
             return 0
         if cmd[0] == "setfacl":
