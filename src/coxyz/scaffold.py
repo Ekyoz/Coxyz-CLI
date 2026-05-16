@@ -8,13 +8,8 @@ from importlib.resources import files
 from pathlib import Path
 
 from .config import Config
-from .system import (
-    CommandRunner,
-    acl_entry_for,
-    acl_mask_for_rule,
-    group_exists,
-    user_exists,
-)
+from .policy import plan_path
+from .system import CommandRunner, group_exists, user_exists
 
 SERVICE_NAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
@@ -70,62 +65,26 @@ def create_service(
     if svc_path.exists():
         raise RuntimeError(f"Service path already exists: {svc_path}")
 
-    cat_dir = config.root_dir / req.category
-    config_dir = svc_path / "config"
-    data_dir = svc_path / "data"
-    compose_file = svc_path / "compose.yaml"
-
-    owner = cat.owner_spec
     runner = CommandRunner(dry_run=dry_run)
 
-    def apply_dir(path: Path, rule_name: str) -> None:
-        rule = config.rule(rule_name)
-        runner.chown(path, owner)
-        # ACL first (it can affect the displayed mode via the mask)
-        if rule.acl and acl_enabled and all(
-            principals_available.get(name, False) for name in rule.acl
+    def apply_rule(path: Path, rule_name: str, *, is_dir: bool) -> None:
+        for command in plan_path(
+            path, config.rule(rule_name), cat.owner_spec, config,
+            is_dir=is_dir, acl_enabled=acl_enabled,
+            principals_available=principals_available,
         ):
-            mask = acl_mask_for_rule(rule.acl, is_dir=True)
-            for principal_name, perms in rule.acl.items():
-                principal = config.settings.principals[principal_name]
-                entry = acl_entry_for(principal.name, principal.kind, perms)
-                runner.setfacl_entry(path, entry, mask)
-        # chmod last so the path ends up in the expected mode
-        runner.chmod(path, rule.mode)
+            runner.run(command)
 
-    def apply_file(path: Path, rule_name: str) -> None:
-        rule = config.rule(rule_name)
-        runner.chown(path, owner)
-        if rule.acl and acl_enabled and all(
-            principals_available.get(name, False) for name in rule.acl
-        ):
-            mask = acl_mask_for_rule(rule.acl, is_dir=False)
-            for principal_name, perms in rule.acl.items():
-                principal = config.settings.principals[principal_name]
-                entry = acl_entry_for(principal.name, principal.kind, perms)
-                runner.setfacl_entry(path, entry, mask)
-        runner.chmod(path, rule.mode)
+    # Directory tree (mkdir -p is idempotent, so an existing category dir is fine).
+    apply_rule(config.root_dir / req.category, "category_dir", is_dir=True)
+    apply_rule(svc_path, "service_dir", is_dir=True)
+    apply_rule(svc_path / "config", "config_dir", is_dir=True)
+    apply_rule(svc_path / "data", "data_dir", is_dir=True)
 
-    # 1) Category dir (idempotent)
-    if not cat_dir.exists():
-        runner.mkdir(cat_dir)
-    apply_dir(cat_dir, "category_dir")
-
-    # 2) Service dir
-    runner.mkdir(svc_path)
-    apply_dir(svc_path, "service_dir")
-
-    # 3) config/
-    runner.mkdir(config_dir)
-    apply_dir(config_dir, "config_dir")
-
-    # 4) data/
-    runner.mkdir(data_dir)
-    apply_dir(data_dir, "data_dir")
-
-    # 5) compose.yaml
+    # compose.yaml: write the file first, then own/permission it.
+    compose_file = svc_path / "compose.yaml"
     content = render_compose(req, svc_path, config.compose_template.external_network)
     runner.write_file(compose_file, content)
-    apply_file(compose_file, "compose_file")
+    apply_rule(compose_file, "compose_file", is_dir=False)
 
     return runner.executed

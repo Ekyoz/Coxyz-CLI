@@ -4,18 +4,35 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "coxyz"
-version = "0.1.0"
-description = "CLI to manage Docker services under /srv/docker (coxyz rules)"
+dynamic = ["version"]
+description = "CLI to manage Docker services under /srv/docker (ownership, permissions, ACLs)"
+readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "coxyz" }]
+keywords = ["docker", "acl", "permissions", "cli", "sysadmin"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: System :: Systems Administration",
+]
 dependencies = [
     "typer>=0.12",
     "rich>=13.7",
     "pyyaml>=6.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Ekyoz/Coxyz-CLI"
+Repository = "https://github.com/Ekyoz/Coxyz-CLI"
+Issues = "https://github.com/Ekyoz/Coxyz-CLI/issues"
+
 [project.scripts]
 coxyz = "coxyz.cli:app"
+
+[tool.setuptools.dynamic]
+version = { attr = "coxyz.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
