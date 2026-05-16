@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-import shlex
 import subprocess
 import sys
 from importlib.resources import files
@@ -572,8 +571,10 @@ def edit_cmd() -> None:
         cfg_path.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
         console.print(f"[dim]Created {cfg_path} from bundled defaults.[/dim]")
     editor = os.environ.get("EDITOR")
-    command = shlex.split(editor) if editor and editor.strip() else ["nano"]
-    command.append(str(cfg_path))
+    if editor and editor.strip():
+        command = [editor.strip(), str(cfg_path)]
+    else:
+        command = ["nano", str(cfg_path)]
     try:
         subprocess.run(command, check=True)
     except FileNotFoundError:

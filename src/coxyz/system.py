@@ -154,6 +154,21 @@ def acl_entry_for(name: str, kind: str, perms: str) -> str:
     return f"{prefix}:{name}:{norm}"
 
 
+def acl_mask_for_perms(perms: str, *, is_dir: bool) -> str:
+    """Build ACL mask perms for one entry."""
+    if perms == "x" and is_dir:
+        return "rx"
+    return perms.replace("-", "")
+
+
+def acl_mask_for_rule(rule_acl: dict[str, str], *, is_dir: bool) -> str:
+    """Build ACL mask perms for a full rule."""
+    merged: set[str] = set()
+    for perms in rule_acl.values():
+        merged.update(acl_mask_for_perms(perms, is_dir=is_dir))
+    return "".join(c for c in "rwx" if c in merged)
+
+
 def has_principal_entry(state: PathState, name: str, kind: str, perms: str) -> bool:
     """Check if state already has the expected principal entry."""
     prefix = "group" if kind == "group" else "user"

@@ -12,6 +12,7 @@ from .system import (
     CommandRunner,
     PathState,
     acl_entry_for,
+    acl_mask_for_rule,
     has_any_default_acl,
     has_principal_entry,
     read_state,
@@ -148,19 +149,6 @@ def _expected_owner(config: Config, category: str, rule: RuleConfig) -> str:
     return cat.owner_spec
 
 
-def _acl_mask_for_perms(acl: str, *, is_dir: bool) -> str:
-    if acl == "x" and is_dir:
-        return "rx"
-    return acl.replace("-", "")
-
-
-def _acl_mask_for_rule(rule_acl: dict[str, str], *, is_dir: bool) -> str:
-    perms: set[str] = set()
-    for acl in rule_acl.values():
-        perms.update(_acl_mask_for_perms(acl, is_dir=is_dir))
-    return "".join(c for c in "rwx" if c in perms)
-
-
 def _audit_path(
     path: Path,
     rule_name: str,
@@ -177,6 +165,7 @@ def _audit_path(
     fixes: list[list[str]] = []
 
     if not state.exists:
+        # Always create required dirs; data_dir is created even if audit_only.
         should_create = rule_name in AUTO_CREATE_DIR_RULES and (
             not rule.audit_only or rule_name == "data_dir"
         )
@@ -373,6 +362,7 @@ def _order_fixes(fixes: list[list[str]]) -> list[list[str]]:
         if not cmd:
             return 99
         if cmd[0] == "mkdir":
+            # Ensure directories exist before chown/setfacl/chmod.
             return -1
         if cmd[0] == "chown":
             return 0

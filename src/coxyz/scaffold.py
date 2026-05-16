@@ -11,6 +11,7 @@ from .config import Config
 from .system import (
     CommandRunner,
     acl_entry_for,
+    acl_mask_for_rule,
     group_exists,
     user_exists,
 )
@@ -77,15 +78,6 @@ def create_service(
     owner = cat.owner_spec
     runner = CommandRunner(dry_run=dry_run)
 
-    def acl_mask(rule_acl: dict[str, str], *, is_dir: bool) -> str:
-        perms: set[str] = set()
-        for acl in rule_acl.values():
-            if acl == "x" and is_dir:
-                perms.update("rx")
-            else:
-                perms.update(acl.replace("-", ""))
-        return "".join(c for c in "rwx" if c in perms)
-
     def apply_dir(path: Path, rule_name: str) -> None:
         rule = config.rule(rule_name)
         runner.chown(path, owner)
@@ -93,7 +85,7 @@ def create_service(
         if rule.acl and acl_enabled and all(
             principals_available.get(name, False) for name in rule.acl
         ):
-            mask = acl_mask(rule.acl, is_dir=True)
+            mask = acl_mask_for_rule(rule.acl, is_dir=True)
             for principal_name, perms in rule.acl.items():
                 principal = config.settings.principals[principal_name]
                 entry = acl_entry_for(principal.name, principal.kind, perms)
@@ -107,7 +99,7 @@ def create_service(
         if rule.acl and acl_enabled and all(
             principals_available.get(name, False) for name in rule.acl
         ):
-            mask = acl_mask(rule.acl, is_dir=False)
+            mask = acl_mask_for_rule(rule.acl, is_dir=False)
             for principal_name, perms in rule.acl.items():
                 principal = config.settings.principals[principal_name]
                 entry = acl_entry_for(principal.name, principal.kind, perms)
