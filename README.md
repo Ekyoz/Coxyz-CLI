@@ -8,18 +8,18 @@ tool driven by a YAML configuration.
 
 ## Install
 
-`coxyz` is published on [PyPI](https://pypi.org/project/coxyz/). It needs root
-for most operations (`chown` / `setfacl`), so install it **system-wide** and run
-it with `sudo`.
+coxyz is published on PyPI as the [`coxyz-cli`](https://pypi.org/project/coxyz-cli/)
+package — the installed command stays `coxyz`. It needs root for most operations
+(`chown` / `setfacl`), so install it **system-wide** and run it with `sudo`.
 
 ```bash
 sudo apt install -y pipx
 
 # Install into an isolated venv under /opt, with the binary on the system PATH.
-sudo env PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install coxyz
+sudo env PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install coxyz-cli
 ```
 
-> With pipx ≥ 1.5 you can use the shorter `sudo pipx install --global coxyz`
+> With pipx ≥ 1.5 you can use the shorter `sudo pipx install --global coxyz-cli`
 > instead. Debian 12 ships pipx 1.4.3, which needs the `env` form above.
 
 Then run:
@@ -37,7 +37,7 @@ coxyz --install-completion
 ### Update
 
 ```bash
-sudo env PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx upgrade coxyz
+sudo env PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx upgrade coxyz-cli
 ```
 
 ### Migrating from a manual install
