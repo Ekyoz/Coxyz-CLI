@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 
 import yaml
 
-KomodoKind = Literal["group", "user"]
+PrincipalKind = Literal["group", "user"]
 AclPerms = Literal["rx", "rw", "rwx", "x"]
 
 
 @dataclass(frozen=True)
-class KomodoConfig:
+class PrincipalConfig:
     name: str
-    kind: KomodoKind
+    kind: PrincipalKind
+
+
+@dataclass(frozen=True)
+class SettingsConfig:
+    principals: dict[str, PrincipalConfig]
 
 
 @dataclass(frozen=True)
@@ -34,7 +39,7 @@ class RuleConfig:
     """Rule applied to a path (directory or file)."""
 
     mode: str  # octal as string e.g. "750"
-    acl: AclPerms | None = None
+    acl: dict[str, AclPerms] | None = None
     owner: str | None = None  # "user:group" override; None = use category owner
     audit_only: bool = False
 
@@ -49,7 +54,7 @@ class ComposeTemplateConfig:
 @dataclass(frozen=True)
 class Config:
     root_dir: Path
-    komodo: KomodoConfig
+    settings: SettingsConfig
     categories: dict[str, CategoryConfig]
     rules: dict[str, RuleConfig]
     exclude: list[str]
@@ -69,7 +74,7 @@ class Config:
         return self.rules[name]
 
 
-# ─── Loading ──────────────────────────────────────────────────────────────────
+# ─── Loading ────────────────────────────────────────────────────────────
 
 DEFAULT_CONFIG_LOCATIONS: tuple[Path, ...] = (
     Path("/etc/coxyz/config.yaml"),
@@ -91,14 +96,71 @@ def _load_bundled_default() -> dict:
     return yaml.safe_load(resource.read_text(encoding="utf-8"))
 
 
+def _parse_settings(raw: dict) -> SettingsConfig:
+    if "settings" in raw:
+        settings_raw = raw["settings"]
+        principals_raw = settings_raw.get("principals")
+        if not isinstance(principals_raw, dict) or not principals_raw:
+            raise ValueError("settings.principals must be a non-empty mapping")
+        principals: dict[str, PrincipalConfig] = {}
+        for key, entry in principals_raw.items():
+            if not isinstance(entry, dict):
+                raise ValueError(f"settings.principals.{key} must be a mapping")
+            name = str(entry["name"])
+            kind = entry["kind"]
+            if kind not in ("group", "user"):
+                raise ValueError(
+                    f"settings.principals.{key}.kind must be 'group' or 'user', got {kind!r}"
+                )
+            principals[str(key)] = PrincipalConfig(name=name, kind=kind)
+        return SettingsConfig(principals=principals)
+
+    # Backward-compatible shim for old 'komodo' config
+    if "komodo" in raw:
+        komodo = raw["komodo"]
+        kind = komodo["kind"]
+        if kind not in ("group", "user"):
+            raise ValueError(f"komodo.kind must be 'group' or 'user', got {kind!r}")
+        return SettingsConfig(
+            principals={
+                "komodo": PrincipalConfig(name=str(komodo["name"]), kind=kind)
+            }
+        )
+
+    raise ValueError("Missing required key in config: settings (or legacy komodo)")
+
+
+def _parse_rule_acl(
+    acl_raw: object,
+    settings: SettingsConfig,
+    rule_name: str,
+) -> dict[str, AclPerms] | None:
+    if acl_raw is None:
+        return None
+    if isinstance(acl_raw, str):
+        if "komodo" not in settings.principals:
+            raise ValueError(f"rules.{rule_name}.acl uses legacy string but no 'komodo' principal")
+        return {"komodo": acl_raw}
+    if not isinstance(acl_raw, dict):
+        raise ValueError(f"rules.{rule_name}.acl must be a mapping or null")
+
+    acl: dict[str, AclPerms] = {}
+    for principal_name, perms in acl_raw.items():
+        if principal_name not in settings.principals:
+            raise ValueError(
+                f"rules.{rule_name}.acl references unknown principal '{principal_name}'"
+            )
+        if perms is None:
+            raise ValueError(
+                f"rules.{rule_name}.acl.{principal_name} must be a permission string"
+            )
+        acl[str(principal_name)] = str(perms)
+    return acl
+
+
 def _parse_config(raw: dict) -> Config:
     try:
-        komodo = KomodoConfig(
-            name=str(raw["komodo"]["name"]),
-            kind=raw["komodo"]["kind"],
-        )
-        if komodo.kind not in ("group", "user"):
-            raise ValueError(f"komodo.kind must be 'group' or 'user', got {komodo.kind!r}")
+        settings = _parse_settings(raw)
 
         categories = {
             name: CategoryConfig(user=str(c["user"]), group=str(c["group"]))
@@ -109,7 +171,7 @@ def _parse_config(raw: dict) -> Config:
         for name, r in raw["rules"].items():
             rules[name] = RuleConfig(
                 mode=str(r["mode"]),
-                acl=r.get("acl"),
+                acl=_parse_rule_acl(r.get("acl"), settings, name),
                 owner=r.get("owner"),
                 audit_only=bool(r.get("audit_only", False)),
             )
@@ -127,7 +189,7 @@ def _parse_config(raw: dict) -> Config:
 
         return Config(
             root_dir=Path(raw["root_dir"]),
-            komodo=komodo,
+            settings=settings,
             categories=categories,
             rules=rules,
             exclude=[str(p) for p in exclude_raw],
