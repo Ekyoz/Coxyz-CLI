@@ -2,8 +2,9 @@ name: Publish to PyPI
 
 # Publishes to PyPI when a version tag (vX.Y.Z) is pushed.
 # Authentication uses PyPI Trusted Publishing (OIDC) — no API token needed.
-# One-time setup on PyPI: add a trusted publisher for this repo with
-# workflow filename "publish.yml" (environment left blank).
+# One-time setup on PyPI — add a Trusted Publisher with:
+#   PyPI project name: coxyz-cli   (must match `name` in pyproject.toml)
+#   Owner: Ekyoz   Repository: Coxyz-CLI   Workflow: publish.yml   Environment: (blank)
 
 on:
   push:
