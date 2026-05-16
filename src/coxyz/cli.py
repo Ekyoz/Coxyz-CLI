@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -573,11 +574,15 @@ def edit_cmd() -> None:
         console.print(f"[dim]Created {cfg_path} from bundled defaults.[/dim]")
     editor = os.environ.get("EDITOR")
     if editor and editor.strip():
-        editor_cmd = editor.strip()
+        parts = shlex.split(editor)
+        if not parts:
+            err_console.print("[red]ERROR[/red] EDITOR is empty.")
+            raise typer.Exit(code=2)
+        editor_cmd = parts[0]
         if shutil.which(editor_cmd) is None and not Path(editor_cmd).is_file():
             err_console.print(f"[red]ERROR[/red] Editor not found: {editor_cmd}")
             raise typer.Exit(code=2)
-        command = [editor_cmd, str(cfg_path)]
+        command = [*parts, str(cfg_path)]
     else:
         command = None
         for candidate in ("nano", "vi", "vim"):
@@ -589,6 +594,9 @@ def edit_cmd() -> None:
             raise typer.Exit(code=2)
     try:
         subprocess.run(command, check=True)
+    except subprocess.CalledProcessError:
+        err_console.print("[red]ERROR[/red] Editor exited with an error.")
+        raise typer.Exit(code=2)
     except FileNotFoundError:
         err_console.print(f"[red]ERROR[/red] Editor not found: {command[0]}")
         raise typer.Exit(code=2)
