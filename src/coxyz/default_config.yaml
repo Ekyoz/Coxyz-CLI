@@ -7,9 +7,11 @@ root_dir: /srv/docker
 # Examples: "*.bak", "*/do_not_touch/", "apps/legacy/*"
 exclude: []
 
-komodo:
-  name: komodo_runner
-  kind: group              # "group" or "user"
+settings:
+  principals:
+    komodo:
+      name: komodo_runner
+      kind: group              # "group" or "user"
 
 # Authorized categories and their owning service account.
 # Format: <category>: { user: <svc_user>, group: <svc_group> }
@@ -29,25 +31,29 @@ categories:
 
 # Rules applied to each path kind.
 # - mode: octal mode as string (e.g. "750")
-# - acl:  komodo ACL perms ("rx", "rw", "rwx", "x") or null to skip
+# - acl:  per-principal ACL perms ("rx", "rw", "rwx", "x") or null to skip
 # - owner: optional "user:group" override (default: category owner)
 # - audit_only: if true, never modify; just report drift
 rules:
   category_dir:
     mode: "750"
-    acl: "rx"
+    acl:
+      komodo: "rx"
 
   service_dir:
     mode: "750"
-    acl: "rx"
+    acl:
+      komodo: "rx"
 
   compose_file:
     mode: "660"
-    acl: "rw"
+    acl:
+      komodo: "rw"
 
   config_dir:
     mode: "750"
-    acl: "x"
+    acl:
+      komodo: "x"
 
   data_dir:
     mode: "750"

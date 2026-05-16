@@ -54,7 +54,7 @@ def create_service(
     *,
     dry_run: bool,
     acl_enabled: bool,
-    komodo_available: bool,
+    principal_available: dict[str, bool],
 ) -> list[list[str]]:
     """Create the service tree. Returns the list of commands executed (or planned)."""
     validate_service_name(req.service)
@@ -77,23 +77,41 @@ def create_service(
     owner = cat.owner_spec
     runner = CommandRunner(dry_run=dry_run)
 
+    def acl_mask(rule_acl: dict[str, str], *, is_dir: bool) -> str:
+        perms: set[str] = set()
+        for acl in rule_acl.values():
+            if acl == "x" and is_dir:
+                perms.update("rx")
+            else:
+                perms.update(acl.replace("-", ""))
+        return "".join(c for c in "rwx" if c in perms)
+
     def apply_dir(path: Path, rule_name: str) -> None:
         rule = config.rule(rule_name)
         runner.chown(path, owner)
         # ACL first (it can affect the displayed mode via the mask)
-        if rule.acl and acl_enabled and komodo_available:
-            entry = acl_entry_for(config.komodo.name, config.komodo.kind, rule.acl)
-            mask = rule.acl
-            runner.setfacl_entry(path, entry, mask)
+        if rule.acl and acl_enabled and all(
+            principal_available.get(name, False) for name in rule.acl
+        ):
+            mask = acl_mask(rule.acl, is_dir=True)
+            for principal_name, perms in rule.acl.items():
+                principal = config.settings.principals[principal_name]
+                entry = acl_entry_for(principal.name, principal.kind, perms)
+                runner.setfacl_entry(path, entry, mask)
         # chmod last so the path ends up in the expected mode
         runner.chmod(path, rule.mode)
 
     def apply_file(path: Path, rule_name: str) -> None:
         rule = config.rule(rule_name)
         runner.chown(path, owner)
-        if rule.acl and acl_enabled and komodo_available:
-            entry = acl_entry_for(config.komodo.name, config.komodo.kind, rule.acl)
-            runner.setfacl_entry(path, entry, rule.acl)
+        if rule.acl and acl_enabled and all(
+            principal_available.get(name, False) for name in rule.acl
+        ):
+            mask = acl_mask(rule.acl, is_dir=False)
+            for principal_name, perms in rule.acl.items():
+                principal = config.settings.principals[principal_name]
+                entry = acl_entry_for(principal.name, principal.kind, perms)
+                runner.setfacl_entry(path, entry, mask)
         runner.chmod(path, rule.mode)
 
     # 1) Category dir (idempotent)

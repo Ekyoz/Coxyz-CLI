@@ -13,8 +13,7 @@ from .system import (
     PathState,
     acl_entry_for,
     has_any_default_acl,
-    has_komodo_entry,
-    komodo_principal_exists,
+    has_principal_entry,
     read_state,
     user_exists,
     group_exists,
@@ -28,7 +27,7 @@ class Severity(str, Enum):
     ERROR = "error"          # blocking (missing user, etc.)
 
 
-AUTO_CREATE_DIR_RULES = {"category_dir", "service_dir", "config_dir"}
+AUTO_CREATE_DIR_RULES = {"category_dir", "service_dir", "config_dir", "data_dir"}
 
 
 @dataclass
@@ -155,6 +154,13 @@ def _acl_mask_for_rule_acl(acl: str, *, is_dir: bool) -> str:
     return acl.replace("-", "")
 
 
+def _acl_mask_for_rule(rule_acl: dict[str, str], *, is_dir: bool) -> str:
+    perms: set[str] = set()
+    for acl in rule_acl.values():
+        perms.update(_acl_mask_for_rule_acl(acl, is_dir=is_dir))
+    return "".join(c for c in "rwx" if c in perms)
+
+
 def _audit_path(
     path: Path,
     rule_name: str,
@@ -163,7 +169,7 @@ def _audit_path(
     config: Config,
     *,
     acl_enabled: bool,
-    komodo_available: bool,
+    principal_available: dict[str, bool],
 ) -> Finding:
     """Audit a single path against a rule, return a Finding (with planned fixes)."""
     state = read_state(path)
@@ -171,7 +177,7 @@ def _audit_path(
     fixes: list[list[str]] = []
 
     if not state.exists:
-        if not rule.audit_only and rule_name in AUTO_CREATE_DIR_RULES:
+        if rule_name in AUTO_CREATE_DIR_RULES:
             issues.append("path does not exist")
             fixes.append(["mkdir", "-p", str(path)])
 
@@ -186,13 +192,22 @@ def _audit_path(
             if rule.acl is not None:
                 if not acl_enabled:
                     issues.append(f"acl missing ({rule.acl}); ACL support disabled on filesystem")
-                elif not komodo_available:
-                    issues.append(f"acl missing ({rule.acl}); komodo principal not found")
                 else:
-                    entry = acl_entry_for(config.komodo.name, config.komodo.kind, rule.acl)
-                    mask = _acl_mask_for_rule_acl(rule.acl, is_dir=True)
-                    fixes.append(["setfacl", "-m", entry, str(path)])
-                    fixes.append(["setfacl", "-m", f"m:{mask}", str(path)])
+                    missing = [
+                        name for name in rule.acl
+                        if not principal_available.get(name, False)
+                    ]
+                    if missing:
+                        issues.append(
+                            f"acl missing ({rule.acl}); principal(s) not found: {', '.join(missing)}"
+                        )
+                    else:
+                        mask = _acl_mask_for_rule(rule.acl, is_dir=True)
+                        for principal_name, perms in rule.acl.items():
+                            principal = config.settings.principals[principal_name]
+                            entry = acl_entry_for(principal.name, principal.kind, perms)
+                            fixes.append(["setfacl", "-m", entry, str(path)])
+                        fixes.append(["setfacl", "-m", f"m:{mask}", str(path)])
 
             fixes.append(["chmod", rule.mode, str(path)])
             return Finding(
@@ -229,28 +244,36 @@ def _audit_path(
     if rule.acl is not None:
         if not acl_enabled:
             issues.append(f"acl missing ({rule.acl}); ACL support disabled on filesystem")
-        elif not komodo_available:
-            issues.append(f"acl missing ({rule.acl}); komodo principal not found")
-        elif not has_komodo_entry(state, config.komodo.name, config.komodo.kind, rule.acl):
-            entry = acl_entry_for(config.komodo.name, config.komodo.kind, rule.acl)
-            issues.append(f"acl missing or wrong: expected {entry}")
-            mask = _acl_mask_for_rule_acl(rule.acl, is_dir=state.is_dir)
-            if has_any_default_acl(state):
-                fixes.append(["setfacl", "-k", str(path)])
-            fixes.append(["setfacl", "-m", entry, str(path)])
-            fixes.append(["setfacl", "-m", f"m:{mask}", str(path)])
+        else:
+            missing = [
+                name for name in rule.acl
+                if not principal_available.get(name, False)
+            ]
+            if missing:
+                issues.append(
+                    f"acl missing ({rule.acl}); principal(s) not found: {', '.join(missing)}"
+                )
+            else:
+                mask = _acl_mask_for_rule(rule.acl, is_dir=state.is_dir)
+                need_default_cleanup = has_any_default_acl(state)
+                for principal_name, perms in rule.acl.items():
+                    principal = config.settings.principals[principal_name]
+                    if not has_principal_entry(state, principal.name, principal.kind, perms):
+                        entry = acl_entry_for(principal.name, principal.kind, perms)
+                        issues.append(f"acl missing or wrong: expected {entry}")
+                        if need_default_cleanup:
+                            fixes.append(["setfacl", "-k", str(path)])
+                            need_default_cleanup = False
+                        fixes.append(["setfacl", "-m", entry, str(path)])
+                if any("setfacl" in cmd for cmd in fixes):
+                    fixes.append(["setfacl", "-m", f"m:{mask}", str(path)])
     else:
-        # acl is None → verify there is NO extended komodo ACL
-        if any(
-            e.startswith((f"user:{config.komodo.name}:", f"group:{config.komodo.name}:"))
-            for e in state.acl_entries
-        ):
-            issues.append(f"unexpected acl entry for {config.komodo.name}")
+        # acl is None → verify there is NO extended ACL
+        if state.acl_entries:
+            issues.append("unexpected acl entries present")
             # We do not auto-fix removal in audit_only mode; only flag.
             if not rule.audit_only:
-                fixes.append(["setfacl", "-x",
-                              f"{'g' if config.komodo.kind == 'group' else 'u'}:{config.komodo.name}",
-                              str(path)])
+                fixes.append(["setfacl", "-b", str(path)])
 
     if not issues:
         return Finding(path=path, rule_name=rule_name, severity=Severity.OK)
@@ -264,7 +287,7 @@ def audit_service(
     service: str,
     *,
     acl_enabled: bool,
-    komodo_available: bool,
+    principal_available: dict[str, bool],
 ) -> ServiceReport:
     """Run full audit of a single service."""
     svc_path = config.root_dir / category / service
@@ -278,7 +301,7 @@ def audit_service(
         report.findings.append(
             _audit_path(
                 path, rule_name, rule, owner, config,
-                acl_enabled=acl_enabled, komodo_available=komodo_available,
+                acl_enabled=acl_enabled, principal_available=principal_available,
             )
         )
 
@@ -301,8 +324,7 @@ def audit_service(
 
     # data/ dir — only the directory itself, not its contents (audit only)
     data_dir = svc_path / "data"
-    if data_dir.is_dir():
-        add(data_dir, "data_dir")
+    add(data_dir, "data_dir")
 
     # .env file (audit only)
     env_file = svc_path / ".env"
@@ -314,7 +336,7 @@ def audit_service(
 
 def audit_category(
     config: Config, category: str,
-    *, acl_enabled: bool, komodo_available: bool,
+    *, acl_enabled: bool, principal_available: dict[str, bool],
 ) -> Finding:
     """Audit the category directory itself."""
     cat_path = config.root_dir / category
@@ -324,7 +346,7 @@ def audit_category(
     owner = _expected_owner(config, category, rule)
     return _audit_path(
         cat_path, "category_dir", rule, owner, config,
-        acl_enabled=acl_enabled, komodo_available=komodo_available,
+        acl_enabled=acl_enabled, principal_available=principal_available,
     )
 
 
@@ -347,6 +369,8 @@ def _order_fixes(fixes: list[list[str]]) -> list[list[str]]:
     def priority(cmd: list[str]) -> int:
         if not cmd:
             return 99
+        if cmd[0] == "mkdir":
+            return -1
         if cmd[0] == "chown":
             return 0
         if cmd[0] == "setfacl":

@@ -147,7 +147,7 @@ def principal_exists(name: str, kind: str) -> bool:
 
 
 def acl_entry_for(name: str, kind: str, perms: str) -> str:
-    """Build a setfacl -m argument like 'g:komodo_runner:rx'."""
+    """Build a setfacl -m argument like 'g:service_group:rx'."""
     prefix = "g" if kind == "group" else "u"
     # Normalize perms: remove dashes
     norm = perms.replace("-", "")
