@@ -1,7 +1,7 @@
 # coxyz
 
 CLI to manage Docker services under `/srv/docker` following coxyz rules
-(ownership, permissions, ACL for Komodo).
+(ownership, permissions, ACL principals).
 
 Replaces `check_fix_permission.zsh` + `services.zsh` with a single typed Python
 tool driven by a YAML configuration.
@@ -50,6 +50,7 @@ coxyz create                    # interactive prompts
 coxyz create -C apps -n myapp -i nginx:1.27 -p 80 --apply
 
 coxyz show-config               # print resolved config
+coxyz edit                      # edit /etc/coxyz/config.yaml
 ```
 
 Most operations require root (chown/setfacl), so prefix with `sudo`.
@@ -65,7 +66,7 @@ exclude:
 ## How it works
 
 - **Config** (`/etc/coxyz/config.yaml` or bundled default) defines:
-  - root dir, komodo principal, authorized categories
+  - root dir, ACL principals, authorized categories
   - `exclude` glob patterns to ignore paths during audit/apply
   - per-path rules: mode, ACL perms, optional owner override, audit-only flag
 - **`check`**: read-only audit. Reports drift and warn-only (data/, .env).
@@ -82,8 +83,8 @@ exclude:
 
 ```
 /srv/docker/<category>/<service>/
-├── compose.yaml      660  svc_<cat>:svc_<cat>  komodo:rw
-├── config/           750  svc_<cat>:svc_<cat>  komodo:rx
+├── compose.yaml      660  svc_<cat>:svc_<cat>  acl:rw
+├── config/           750  svc_<cat>:svc_<cat>  acl:rx
 │   └── ...           (subdirs 750 rwx, files 660 rw)
 └── data/             750  svc_<cat>:svc_<cat>  no ACL (audit only)
 ```

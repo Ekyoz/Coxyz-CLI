@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shlex
+import shutil
+import subprocess
 import sys
+from importlib.resources import files
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -30,7 +35,7 @@ from .system import (
     CommandExecutionError,
     check_required_bins,
     detect_acl_support,
-    komodo_principal_exists,
+    principal_exists,
 )
 
 app = typer.Typer(
@@ -49,7 +54,7 @@ class Ctx:
     config: Config
     config_source: Optional[Path]
     acl_enabled: bool
-    komodo_available: bool
+    principals_available: dict[str, bool]
 
 
 ctx = Ctx()
@@ -85,7 +90,10 @@ def main(
     ctx.config = cfg
     ctx.config_source = source
     ctx.acl_enabled = detect_acl_support(cfg.root_dir)
-    ctx.komodo_available = komodo_principal_exists(cfg.komodo.name, cfg.komodo.kind)
+    ctx.principals_available = {
+        name: principal_exists(principal.name, principal.kind)
+        for name, principal in cfg.settings.principals.items()
+    }
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -110,9 +118,12 @@ def _severity_symbol(sev: Severity) -> str:
 
 def _print_runtime_banner() -> None:
     src = str(ctx.config_source) if ctx.config_source else "<bundled default>"
+    principals = ", ".join(
+        f"{p.name}({p.kind})" for p in ctx.config.settings.principals.values()
+    )
     console.print(
         f"[dim]root={ctx.config.root_dir}  "
-        f"komodo={ctx.config.komodo.name}({ctx.config.komodo.kind})  "
+        f"principals={principals}  "
         f"acl={'on' if ctx.acl_enabled else 'off'}  "
         f"config={src}[/dim]"
     )
@@ -124,6 +135,31 @@ def _print_finding(finding: Finding, *, indent: str = "  ") -> None:
     console.print(
         f"{indent}[{style}]{sym}[/{style}] "
         f"[dim]{finding.rule_name:14}[/dim] {finding.path}"
+    )
+    for issue in finding.issues:
+        console.print(f"{indent}    [dim]→[/dim] {issue}")
+
+
+def _display_target_for_apply(path: Path) -> str:
+    try:
+        rel = path.resolve().relative_to(ctx.config.root_dir.resolve())
+    except ValueError:
+        return str(path)
+    parts = rel.parts
+    if len(parts) >= 2 and parts[0] in ctx.config.categories:
+        return f"{parts[0]}/{parts[1]}"
+    if len(parts) >= 1 and parts[0] in ctx.config.categories:
+        return parts[0]
+    return str(path)
+
+
+def _print_finding_apply(finding: Finding, *, indent: str = "  ") -> None:
+    style = _severity_style(finding.severity)
+    sym = _severity_symbol(finding.severity)
+    target = _display_target_for_apply(finding.path)
+    console.print(
+        f"{indent}[{style}]{sym}[/{style}] "
+        f"[dim]{finding.rule_name:14}[/dim] {target}"
     )
     for issue in finding.issues:
         console.print(f"{indent}    [dim]→[/dim] {issue}")
@@ -197,7 +233,7 @@ def list_cmd(
         report = audit_service(
             ctx.config, cat, svc,
             acl_enabled=ctx.acl_enabled,
-            komodo_available=ctx.komodo_available,
+            principals_available=ctx.principals_available,
         )
         if report.compliant:
             status = Text("✓ ok", style="green")
@@ -242,7 +278,7 @@ def check_cmd(
             cat, svc, _ = resolve_service(ctx.config, service)
             reports = [audit_service(
                 ctx.config, cat, svc,
-                acl_enabled=ctx.acl_enabled, komodo_available=ctx.komodo_available,
+                acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
             )]
         except ValueError as e:
             err_console.print(f"[red]ERROR[/red] {e}")
@@ -251,7 +287,7 @@ def check_cmd(
         reports = [
             audit_service(
                 ctx.config, cat, svc,
-                acl_enabled=ctx.acl_enabled, komodo_available=ctx.komodo_available,
+                acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
             )
             for cat, svc, _ in list_services(ctx.config)
         ]
@@ -261,7 +297,7 @@ def check_cmd(
     for cat in list_categories(ctx.config):
         cat_findings[cat] = audit_category(
             ctx.config, cat,
-            acl_enabled=ctx.acl_enabled, komodo_available=ctx.komodo_available,
+            acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
         )
 
     total_drift = 0
@@ -330,20 +366,20 @@ def apply_cmd(
         for cat in list_categories(ctx.config):
             all_findings.append(audit_category(
                 ctx.config, cat,
-                acl_enabled=ctx.acl_enabled, komodo_available=ctx.komodo_available,
+                acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
             ))
     else:
         # When targeting one service, also include its category
         cat = targets[0][0]
         all_findings.append(audit_category(
             ctx.config, cat,
-            acl_enabled=ctx.acl_enabled, komodo_available=ctx.komodo_available,
+            acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
         ))
 
     for cat, svc in targets:
         report = audit_service(
             ctx.config, cat, svc,
-            acl_enabled=ctx.acl_enabled, komodo_available=ctx.komodo_available,
+            acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
         )
         all_findings.extend(report.findings)
 
@@ -358,19 +394,19 @@ def apply_cmd(
     if drifts:
         console.print(f"\n[yellow]Planned changes ({len(drifts)}):[/yellow]")
         for f in drifts:
-            _print_finding(f)
+            _print_finding_apply(f)
             for cmd in f.fixes:
                 console.print(f"      [dim]$[/dim] {' '.join(cmd)}")
 
     if warns:
         console.print(f"\n[magenta]Audit-only warnings ({len(warns)}) — NOT touched:[/magenta]")
         for f in warns:
-            _print_finding(f)
+            _print_finding_apply(f)
 
     if errors:
         console.print(f"\n[red]Errors ({len(errors)}) — blocking:[/red]")
         for f in errors:
-            _print_finding(f)
+            _print_finding_apply(f)
         raise typer.Exit(code=2)
 
     if not yes and not typer.confirm(f"\nApply {len(drifts)} fix(es)?"):
@@ -473,7 +509,7 @@ def create_cmd(
             cfg, req,
             dry_run=not apply_changes,
             acl_enabled=ctx.acl_enabled,
-            komodo_available=ctx.komodo_available,
+            principals_available=ctx.principals_available,
         )
     except (ValueError, RuntimeError) as e:
         err_console.print(f"[red]ERROR[/red] {e}")
@@ -511,17 +547,59 @@ def show_config_cmd() -> None:
     table = Table(show_header=True, header_style="bold dim")
     table.add_column("Rule")
     table.add_column("Mode")
-    table.add_column("ACL (komodo)")
+    table.add_column("ACL")
     table.add_column("Audit only")
     table.add_column("Owner override")
     for name, r in cfg.rules.items():
+        acl = "—"
+        if r.acl:
+            acl = ", ".join(f"{principal}:{perms}" for principal, perms in r.acl.items())
         table.add_row(
             name, r.mode,
-            r.acl or "—",
+            acl,
             "yes" if r.audit_only else "no",
             r.owner or "—",
         )
     console.print(table)
+
+
+@app.command("edit")
+def edit_cmd() -> None:
+    """Edit the main configuration file."""
+    cfg_path = Path("/etc/coxyz/config.yaml")
+    if not cfg_path.exists():
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        src = files("coxyz").joinpath("default_config.yaml")
+        cfg_path.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+        console.print(f"[dim]Created {cfg_path} from bundled defaults.[/dim]")
+    editor = os.environ.get("EDITOR")
+    if editor and editor.strip():
+        parts = shlex.split(editor)
+        if not parts:
+            err_console.print("[red]ERROR[/red] EDITOR is empty.")
+            raise typer.Exit(code=2)
+        editor_cmd = parts[0]
+        if shutil.which(editor_cmd) is None and not Path(editor_cmd).is_file():
+            err_console.print(f"[red]ERROR[/red] Editor not found: {editor_cmd}")
+            raise typer.Exit(code=2)
+        command = [*parts, str(cfg_path)]
+    else:
+        command = None
+        for candidate in ("nano", "vi", "vim"):
+            if shutil.which(candidate):
+                command = [candidate, str(cfg_path)]
+                break
+        if command is None:
+            err_console.print("[red]ERROR[/red] No editor found (set $EDITOR).")
+            raise typer.Exit(code=2)
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError:
+        err_console.print("[red]ERROR[/red] Editor exited with an error.")
+        raise typer.Exit(code=2)
+    except FileNotFoundError:
+        err_console.print(f"[red]ERROR[/red] Editor not found: {command[0]}")
+        raise typer.Exit(code=2)
 
 
 def cli_main() -> None:  # pragma: no cover

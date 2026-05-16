@@ -11,7 +11,14 @@ from unittest.mock import patch
 import typer
 
 from coxyz import cli
-from coxyz.config import CategoryConfig, ComposeTemplateConfig, Config, KomodoConfig, RuleConfig
+from coxyz.config import (
+    CategoryConfig,
+    ComposeTemplateConfig,
+    Config,
+    PrincipalConfig,
+    RuleConfig,
+    SettingsConfig,
+)
 from coxyz.policy import Finding, ServiceReport, Severity, apply_findings
 from coxyz.system import CommandExecutionError, CommandRunner
 
@@ -52,7 +59,11 @@ class ApplyFailureDisplayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cli.ctx.config = Config(
                 root_dir=Path(tmp),
-                komodo=KomodoConfig(name="komodo_runner", kind="group"),
+                settings=SettingsConfig(
+                    principals={
+                        "komodo": PrincipalConfig(name="komodo_runner", kind="group")
+                    }
+                ),
                 categories={"apps": CategoryConfig(user="root", group="root")},
                 rules={"category_dir": RuleConfig(mode="750")},
                 exclude=[],
@@ -64,7 +75,7 @@ class ApplyFailureDisplayTests(unittest.TestCase):
             )
             cli.ctx.config_source = None
             cli.ctx.acl_enabled = False
-            cli.ctx.komodo_available = False
+            cli.ctx.principals_available = {"komodo": False}
 
             drift = Finding(
                 path=Path(tmp) / "apps" / "svc" / "config",

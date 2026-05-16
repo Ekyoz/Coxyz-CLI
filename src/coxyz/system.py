@@ -147,11 +147,26 @@ def principal_exists(name: str, kind: str) -> bool:
 
 
 def acl_entry_for(name: str, kind: str, perms: str) -> str:
-    """Build a setfacl -m argument like 'g:komodo_runner:rx'."""
+    """Build a setfacl -m argument like 'g:service_group:rx'."""
     prefix = "g" if kind == "group" else "u"
     # Normalize perms: remove dashes
     norm = perms.replace("-", "")
     return f"{prefix}:{name}:{norm}"
+
+
+def acl_mask_for_perms(perms: str, *, is_dir: bool) -> str:
+    """Build ACL mask perms for one entry."""
+    if perms == "x" and is_dir:
+        return "rx"
+    return perms.replace("-", "")
+
+
+def acl_mask_for_rule(rule_acl: dict[str, str], *, is_dir: bool) -> str:
+    """Build ACL mask perms for a full rule."""
+    merged: set[str] = set()
+    for perms in rule_acl.values():
+        merged.update(acl_mask_for_perms(perms, is_dir=is_dir))
+    return "".join(c for c in "rwx" if c in merged)
 
 
 def has_principal_entry(state: PathState, name: str, kind: str, perms: str) -> bool:
