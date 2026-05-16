@@ -47,6 +47,7 @@ def check_required_bins() -> list[str]:
 
 # ─── User / group lookup ──────────────────────────────────────────────────────
 
+
 def user_exists(name: str) -> bool:
     try:
         pwd.getpwnam(name)
@@ -64,6 +65,7 @@ def group_exists(name: str) -> bool:
 
 
 # ─── State observation ───────────────────────────────────────────────────────
+
 
 def read_state(path: Path) -> PathState:
     """Read the current state of a path."""
@@ -117,7 +119,8 @@ def _read_extended_acl(path: Path) -> tuple[str, ...]:
     return tuple(entries)
 
 
-# ─── ACL helpers ─────────────────────────────────────────────────────────────
+# ─── ACL helpers ─────────────────────────────────────────────────────────────-
+
 
 def detect_acl_support(root_dir: Path) -> bool:
     """Test if setfacl works on a sample path under root_dir (or /tmp)."""
@@ -135,7 +138,7 @@ def detect_acl_support(root_dir: Path) -> bool:
         tmp.unlink(missing_ok=True)
 
 
-def komodo_principal_exists(name: str, kind: str) -> bool:
+def principal_exists(name: str, kind: str) -> bool:
     if kind == "group":
         return group_exists(name)
     if kind == "user":
@@ -151,8 +154,8 @@ def acl_entry_for(name: str, kind: str, perms: str) -> str:
     return f"{prefix}:{name}:{norm}"
 
 
-def has_komodo_entry(state: PathState, name: str, kind: str, perms: str) -> bool:
-    """Check if state already has the expected komodo entry."""
+def has_principal_entry(state: PathState, name: str, kind: str, perms: str) -> bool:
+    """Check if state already has the expected principal entry."""
     prefix = "group" if kind == "group" else "user"
     norm = perms.replace("-", "")
     needle = f"{prefix}:{name}:"
@@ -201,6 +204,9 @@ class CommandRunner:
 
     def setfacl_remove_default(self, path: Path) -> None:
         self.run(["setfacl", "-k", str(path)])
+
+    def setfacl_remove_all(self, path: Path) -> None:
+        self.run(["setfacl", "-b", str(path)])
 
     def setfacl_entry(self, path: Path, entry: str, mask_perms: str) -> None:
         self.run(["setfacl", "-m", entry, str(path)])
