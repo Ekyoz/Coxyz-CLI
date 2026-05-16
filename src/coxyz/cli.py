@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from importlib.resources import files
@@ -574,7 +575,14 @@ def edit_cmd() -> None:
     if editor and editor.strip():
         command = [editor.strip(), str(cfg_path)]
     else:
-        command = ["nano", str(cfg_path)]
+        command = None
+        for candidate in ("nano", "vi", "vim"):
+            if shutil.which(candidate):
+                command = [candidate, str(cfg_path)]
+                break
+        if command is None:
+            err_console.print("[red]ERROR[/red] No editor found (set $EDITOR).")
+            raise typer.Exit(code=2)
     try:
         subprocess.run(command, check=True)
     except FileNotFoundError:

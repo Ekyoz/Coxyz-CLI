@@ -194,7 +194,7 @@ def _audit_path(
                             f"acl missing ({rule.acl}); principal(s) not found: {', '.join(missing)}"
                         )
                     else:
-                        mask = _acl_mask_for_rule(rule.acl, is_dir=True)
+                        mask = acl_mask_for_rule(rule.acl, is_dir=True)
                         for principal_name, perms in rule.acl.items():
                             principal = config.settings.principals[principal_name]
                             entry = acl_entry_for(principal.name, principal.kind, perms)
@@ -246,7 +246,7 @@ def _audit_path(
                     f"acl missing ({rule.acl}); principal(s) not found: {', '.join(missing)}"
                 )
             else:
-                mask = _acl_mask_for_rule(rule.acl, is_dir=state.is_dir)
+                mask = acl_mask_for_rule(rule.acl, is_dir=state.is_dir)
                 need_default_cleanup = has_any_default_acl(state)
                 for principal_name, perms in rule.acl.items():
                     principal = config.settings.principals[principal_name]
