@@ -1,0 +1,41 @@
+name: Publish to PyPI
+
+# Publishes to PyPI when a version tag (vX.Y.Z) is pushed.
+# Authentication uses PyPI Trusted Publishing (OIDC) — no API token needed.
+# One-time setup on PyPI: add a trusted publisher for this repo with
+# workflow filename "publish.yml" (environment left blank).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write          # required for Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(python -c 'import sys; sys.path.insert(0, "src"); import coxyz; print(coxyz.__version__)')"
+          echo "tag=$tag  package=$pkg"
+          if [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match coxyz.__version__ ($pkg)"
+            exit 1
+          fi
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
