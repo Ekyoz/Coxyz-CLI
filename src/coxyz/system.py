@@ -225,7 +225,7 @@ class CommandRunner:
 
     def setfacl_entry(self, path: Path, entry: str, mask_perms: str) -> None:
         self.run(["setfacl", "-m", entry, str(path)])
-        self.run(["setfacl", "-m", f"m:{mask_perms}", str(path)])
+        #self.run(["setfacl", "-m", f"m:{mask_perms}", str(path)])
 
     def mkdir(self, path: Path) -> None:
         self.run(["mkdir", "-p", str(path)])
