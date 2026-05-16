@@ -54,7 +54,7 @@ def create_service(
     *,
     dry_run: bool,
     acl_enabled: bool,
-    principal_available: dict[str, bool],
+    principals_available: dict[str, bool],
 ) -> list[list[str]]:
     """Create the service tree. Returns the list of commands executed (or planned)."""
     validate_service_name(req.service)
@@ -91,7 +91,7 @@ def create_service(
         runner.chown(path, owner)
         # ACL first (it can affect the displayed mode via the mask)
         if rule.acl and acl_enabled and all(
-            principal_available.get(name, False) for name in rule.acl
+            principals_available.get(name, False) for name in rule.acl
         ):
             mask = acl_mask(rule.acl, is_dir=True)
             for principal_name, perms in rule.acl.items():
@@ -105,7 +105,7 @@ def create_service(
         rule = config.rule(rule_name)
         runner.chown(path, owner)
         if rule.acl and acl_enabled and all(
-            principal_available.get(name, False) for name in rule.acl
+            principals_available.get(name, False) for name in rule.acl
         ):
             mask = acl_mask(rule.acl, is_dir=False)
             for principal_name, perms in rule.acl.items():

@@ -148,7 +148,7 @@ def _expected_owner(config: Config, category: str, rule: RuleConfig) -> str:
     return cat.owner_spec
 
 
-def _acl_mask_for_rule_acl(acl: str, *, is_dir: bool) -> str:
+def _acl_mask_for_perms(acl: str, *, is_dir: bool) -> str:
     if acl == "x" and is_dir:
         return "rx"
     return acl.replace("-", "")
@@ -157,7 +157,7 @@ def _acl_mask_for_rule_acl(acl: str, *, is_dir: bool) -> str:
 def _acl_mask_for_rule(rule_acl: dict[str, str], *, is_dir: bool) -> str:
     perms: set[str] = set()
     for acl in rule_acl.values():
-        perms.update(_acl_mask_for_rule_acl(acl, is_dir=is_dir))
+        perms.update(_acl_mask_for_perms(acl, is_dir=is_dir))
     return "".join(c for c in "rwx" if c in perms)
 
 
@@ -169,7 +169,7 @@ def _audit_path(
     config: Config,
     *,
     acl_enabled: bool,
-    principal_available: dict[str, bool],
+    principals_available: dict[str, bool],
 ) -> Finding:
     """Audit a single path against a rule, return a Finding (with planned fixes)."""
     state = read_state(path)
@@ -177,7 +177,10 @@ def _audit_path(
     fixes: list[list[str]] = []
 
     if not state.exists:
-        if rule_name in AUTO_CREATE_DIR_RULES:
+        should_create = rule_name in AUTO_CREATE_DIR_RULES and (
+            not rule.audit_only or rule_name == "data_dir"
+        )
+        if should_create:
             issues.append("path does not exist")
             fixes.append(["mkdir", "-p", str(path)])
 
@@ -195,7 +198,7 @@ def _audit_path(
                 else:
                     missing = [
                         name for name in rule.acl
-                        if not principal_available.get(name, False)
+                        if not principals_available.get(name, False)
                     ]
                     if missing:
                         issues.append(
@@ -247,7 +250,7 @@ def _audit_path(
         else:
             missing = [
                 name for name in rule.acl
-                if not principal_available.get(name, False)
+                if not principals_available.get(name, False)
             ]
             if missing:
                 issues.append(
@@ -287,7 +290,7 @@ def audit_service(
     service: str,
     *,
     acl_enabled: bool,
-    principal_available: dict[str, bool],
+    principals_available: dict[str, bool],
 ) -> ServiceReport:
     """Run full audit of a single service."""
     svc_path = config.root_dir / category / service
@@ -301,7 +304,7 @@ def audit_service(
         report.findings.append(
             _audit_path(
                 path, rule_name, rule, owner, config,
-                acl_enabled=acl_enabled, principal_available=principal_available,
+                acl_enabled=acl_enabled, principals_available=principals_available,
             )
         )
 
@@ -336,7 +339,7 @@ def audit_service(
 
 def audit_category(
     config: Config, category: str,
-    *, acl_enabled: bool, principal_available: dict[str, bool],
+    *, acl_enabled: bool, principals_available: dict[str, bool],
 ) -> Finding:
     """Audit the category directory itself."""
     cat_path = config.root_dir / category
@@ -346,7 +349,7 @@ def audit_category(
     owner = _expected_owner(config, category, rule)
     return _audit_path(
         cat_path, "category_dir", rule, owner, config,
-        acl_enabled=acl_enabled, principal_available=principal_available,
+        acl_enabled=acl_enabled, principals_available=principals_available,
     )
 
 

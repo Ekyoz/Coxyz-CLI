@@ -232,7 +232,7 @@ def list_cmd(
         report = audit_service(
             ctx.config, cat, svc,
             acl_enabled=ctx.acl_enabled,
-            principal_available=ctx.principals_available,
+            principals_available=ctx.principals_available,
         )
         if report.compliant:
             status = Text("✓ ok", style="green")
@@ -277,7 +277,7 @@ def check_cmd(
             cat, svc, _ = resolve_service(ctx.config, service)
             reports = [audit_service(
                 ctx.config, cat, svc,
-                acl_enabled=ctx.acl_enabled, principal_available=ctx.principals_available,
+                acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
             )]
         except ValueError as e:
             err_console.print(f"[red]ERROR[/red] {e}")
@@ -286,7 +286,7 @@ def check_cmd(
         reports = [
             audit_service(
                 ctx.config, cat, svc,
-                acl_enabled=ctx.acl_enabled, principal_available=ctx.principals_available,
+                acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
             )
             for cat, svc, _ in list_services(ctx.config)
         ]
@@ -296,7 +296,7 @@ def check_cmd(
     for cat in list_categories(ctx.config):
         cat_findings[cat] = audit_category(
             ctx.config, cat,
-            acl_enabled=ctx.acl_enabled, principal_available=ctx.principals_available,
+            acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
         )
 
     total_drift = 0
@@ -365,20 +365,20 @@ def apply_cmd(
         for cat in list_categories(ctx.config):
             all_findings.append(audit_category(
                 ctx.config, cat,
-                acl_enabled=ctx.acl_enabled, principal_available=ctx.principals_available,
+                acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
             ))
     else:
         # When targeting one service, also include its category
         cat = targets[0][0]
         all_findings.append(audit_category(
             ctx.config, cat,
-            acl_enabled=ctx.acl_enabled, principal_available=ctx.principals_available,
+            acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
         ))
 
     for cat, svc in targets:
         report = audit_service(
             ctx.config, cat, svc,
-            acl_enabled=ctx.acl_enabled, principal_available=ctx.principals_available,
+            acl_enabled=ctx.acl_enabled, principals_available=ctx.principals_available,
         )
         all_findings.extend(report.findings)
 
@@ -508,7 +508,7 @@ def create_cmd(
             cfg, req,
             dry_run=not apply_changes,
             acl_enabled=ctx.acl_enabled,
-            principal_available=ctx.principals_available,
+            principals_available=ctx.principals_available,
         )
     except (ValueError, RuntimeError) as e:
         err_console.print(f"[red]ERROR[/red] {e}")
@@ -572,7 +572,7 @@ def edit_cmd() -> None:
         cfg_path.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
         console.print(f"[dim]Created {cfg_path} from bundled defaults.[/dim]")
     editor = os.environ.get("EDITOR")
-    command = shlex.split(editor) if editor else ["nano"]
+    command = shlex.split(editor) if editor and editor.strip() else ["nano"]
     command.append(str(cfg_path))
     try:
         subprocess.run(command, check=True)
